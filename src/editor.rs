@@ -8,8 +8,8 @@ use crate::input::Character;
 
 #[derive(Debug)]
 pub struct Point {
-    pub row: usize,
-    pub col: usize,
+    pub row: isize,
+    pub col: isize,
 }
 
 impl Point {
@@ -17,7 +17,7 @@ impl Point {
         Self::from(0, 0)
     }
 
-    pub fn from(row: usize, col: usize) -> Self {
+    pub fn from(row: isize, col: isize) -> Self {
         Point { row, col }
     }
 }
@@ -57,7 +57,7 @@ impl Editor {
     pub fn viewport_size(&self) -> Point {
         let (terminal_width, terminal_height) = terminal::size().unwrap();
 
-        return Point::from(terminal_height as usize, terminal_width as usize);
+        return Point::from(terminal_height as isize, terminal_width as isize);
     }
 
     pub fn lines(&self) -> &Vec<String> {
@@ -98,7 +98,7 @@ impl Editor {
     }
 
     pub fn move_cursor_down(&mut self) -> bool {
-        if self.cursor.row >= self.max_rows() {
+        if self.cursor.row >= self.max_rows() as isize {
             return false;
         }
 
@@ -107,7 +107,7 @@ impl Editor {
     }
 
     pub fn move_cursor_forward(&mut self) -> bool {
-        if self.cursor.col < self.max_cols() {
+        if self.cursor.col < self.max_cols() as isize {
             self.cursor.col += 1;
             return true;
         }
@@ -127,7 +127,7 @@ impl Editor {
         }
 
         if self.move_cursor_up() {
-            self.cursor.col = self.max_cols(); // reset to what?
+            self.cursor.col = self.max_cols() as isize; // reset to what?
             return true;
         }
 
@@ -139,43 +139,93 @@ impl Editor {
     }
 
     pub fn move_cursor_to_end_of_line(&mut self) {
-        self.cursor.col = self.max_cols();
+        self.cursor.col = self.max_cols() as isize;
     }
 
     fn clamp_cursor_position(&mut self) {
-        self.cursor.row = self.cursor.row.clamp(0, self.max_rows() - 1);
-        self.cursor.col = self.cursor.col.clamp(0, self.max_cols());
+        self.cursor.row = self.cursor.row.clamp(0, self.max_rows() as isize - 1);
+        self.cursor.col = self.cursor.col.clamp(0, self.max_cols() as isize);
     }
 
-    pub fn cursor_position_to_screen(&self) -> Point {
-        Point {
-            col: self.cursor.col + Self::COLUMN_START as usize,
-            row: self.cursor.row - self.viewport_offset.row,
-        }
+    pub fn cursor_position_to_screen(&self) -> (isize, isize) {
+        (
+            self.cursor.row - self.viewport_offset.row,
+            self.cursor.col - self.viewport_offset.col + Self::COLUMN_START as isize,
+        )
     }
 
-    pub fn move_viewport_to_up(&mut self) {
-        if self.viewport_offset.row >= 1 {
-            self.viewport_offset.row -= 1;
-        }
+    pub fn is_cursor_x_inside_viewport(&self) -> bool {
+        let x = self.cursor_position_to_screen().1;
+        return x >= self.viewport_offset.col && x <= self.viewport_size().col;
     }
 
-    pub fn move_viewport_to_down(&mut self) {
-        if self.viewport_offset.row < self.max_rows() {
-            self.viewport_offset.row += 1;
+    pub fn is_cursor_y_inside_viewport(&self) -> bool {
+        let y = self.cursor_position_to_screen().0;
+        return y >= self.viewport_offset.row && y <= self.viewport_size().row;
+    }
+
+    pub fn is_cursor_inside_viewport(&self) -> bool {
+        self.is_cursor_x_inside_viewport() && self.is_cursor_y_inside_viewport()
+    }
+
+    pub fn move_viewport_to_up(&mut self) -> bool {
+        if self.viewport_offset.row < 1 {
+            return false;
         }
+
+        self.viewport_offset.row -= 1;
+        return true;
+    }
+
+    pub fn move_viewport_to_down(&mut self) -> bool {
+        if self.viewport_offset.row >= self.max_rows() as isize {
+            return false;
+        }
+
+        self.viewport_offset.row += 1;
+        return true;
+    }
+
+    pub fn move_viewport_to_left(&mut self) -> bool {
+        if self.viewport_offset.col < 1 {
+            return false;
+        }
+
+        self.viewport_offset.col -= 1;
+        return true;
+    }
+
+    pub fn move_viewport_to_right(&mut self) -> bool {
+        if self.viewport_offset.col + self.viewport_size().col
+            >= self.max_cols() as isize + Self::COLUMN_START as isize + 1
+        {
+            return false;
+        }
+
+        self.viewport_offset.col += 1;
+        return true;
     }
 
     fn update_viewport_offset(&mut self) {
-        let screen_cursor = self.cursor_position_to_screen();
+        let (row, col) = self.cursor_position_to_screen();
         let viewport_size = self.viewport_size();
 
-        if screen_cursor.row >= viewport_size.row - 2 {
-            self.move_viewport_to_down();
+        let mut should_recurse = false;
+
+        if row >= viewport_size.row - 2 {
+            should_recurse = self.move_viewport_to_down();
+        } else if row <= 1 {
+            should_recurse = self.move_viewport_to_up();
         }
 
-        if screen_cursor.row <= 1 {
-            self.move_viewport_to_up();
+        if col >= viewport_size.col - 2 {
+            should_recurse = self.move_viewport_to_right();
+        } else if col <= 1 + Self::COLUMN_START as isize {
+            should_recurse = self.move_viewport_to_left();
+        }
+
+        if should_recurse {
+            self.update_viewport_offset();
         }
     }
 
@@ -185,8 +235,8 @@ impl Editor {
             _ => self.process_special_character(character),
         }
 
-        self.update_viewport_offset();
         self.clamp_cursor_position();
+        self.update_viewport_offset();
     }
 
     fn process_special_character(&mut self, character: Character) {
@@ -218,7 +268,7 @@ impl Editor {
 
     pub fn enter(&mut self) {
         let point = Point {
-            row: self.cursor.row as usize + 1,
+            row: self.cursor.row + 1,
             ..self.cursor
         };
 
@@ -229,13 +279,16 @@ impl Editor {
     }
 
     fn split_line_down(&mut self, point: &Point) {
-        if point.row > self.max_rows() {
+        if point.row > self.max_rows() as isize {
             self.lines.push(String::new())
         }
 
-        let splitted_line = self.get_line_at_cursor_mut().unwrap().split_off(point.col);
+        let splitted_line = self
+            .get_line_at_cursor_mut()
+            .unwrap()
+            .split_off(point.col as usize);
 
-        self.lines.insert(point.row, splitted_line);
+        self.lines.insert(point.row as usize, splitted_line);
     }
 
     pub fn backspace(&mut self) {
@@ -245,7 +298,7 @@ impl Editor {
 
         if self.cursor.col == 0 {
             self.move_cursor_backward();
-            self.merge_below_line(self.cursor.row);
+            self.merge_below_line(self.cursor.row as usize);
             return;
         }
 
@@ -294,14 +347,17 @@ impl Editor {
         let mut terminal_line: u16 = 0;
 
         for line_index in viewport_offset.row..viewport_offset.row + viewport_size.row {
-            if terminal_line as usize + viewport_offset.row >= self.max_rows() {
+            if terminal_line as usize + viewport_offset.row as usize >= self.max_rows() {
                 break;
             }
+
+            let line_start = viewport_offset.col as usize;
+            let line_end = line_start + viewport_size.col as usize - Self::COLUMN_START as usize;
 
             queue!(
                 io::stdout(),
                 MoveTo(0, terminal_line),
-                Print(self.line_to_string(line_index))
+                Print(self.line_to_string(line_index as usize, line_start, line_end))
             )
             .unwrap();
 
@@ -311,11 +367,21 @@ impl Editor {
         return Result::Ok(());
     }
 
-    fn line_to_string(&self, index: usize) -> String {
+    fn line_to_string(&self, index: usize, start: usize, mut end: usize) -> String {
+        let line = &self.lines[index];
+
+        if end >= line.len() {
+            end = line.len() - 1;
+        }
+
         format!(
             "{:>line_width$}  {}",
             index + 1,
-            self.lines[index],
+            if start > line.len() {
+                ""
+            } else {
+                &line[start..=end]
+            },
             line_width = Self::LINE_NUMBER_ALIGNMENT as usize,
         )
     }

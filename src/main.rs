@@ -4,13 +4,15 @@ mod input;
 use std::io::{self, Write};
 
 use crossterm::cursor::MoveTo;
-use crossterm::{execute, terminal};
+use crossterm::execute;
+use crossterm::terminal::{self, DisableLineWrap};
 
 use editor::Editor;
 use input::read_character_from_stdin;
 
 fn main() {
     terminal::enable_raw_mode().unwrap();
+    execute!(io::stdout(), DisableLineWrap).unwrap();
 
     let mut editor = Editor::new();
 
@@ -22,15 +24,11 @@ fn main() {
 
         editor.print().expect("Couldn't print editor");
 
-        let screen_cursor = editor.cursor_position_to_screen();
+        let (row, col) = editor.cursor_position_to_screen();
 
         // print!("{:?}", screen_cursor);
 
-        execute!(
-            io::stdout(),
-            MoveTo(screen_cursor.col as u16, screen_cursor.row as u16)
-        )
-        .unwrap();
+        execute!(io::stdout(), MoveTo(col as u16, row as u16)).unwrap();
 
         io::stdout().flush().unwrap();
     }
