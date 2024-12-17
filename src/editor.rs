@@ -1,20 +1,31 @@
-use std::io;
 use std::io::stdout;
+use std::io::{self, Read};
 
-use crossterm::terminal::{Clear, ClearType};
+use crossterm::terminal::{self, Clear, ClearType};
 use crossterm::{cursor::MoveTo, queue, style::Print};
 
 use crate::input::Character;
 
 #[derive(Debug)]
-pub struct Cursor {
+pub struct Point {
     pub row: usize,
     pub col: usize,
 }
 
+impl Point {
+    pub fn new() -> Self {
+        Self::from(0, 0)
+    }
+
+    pub fn from(row: usize, col: usize) -> Self {
+        Point { row, col }
+    }
+}
+
 pub struct Editor {
+    cursor: Point,
     lines: Vec<String>,
-    cursor: Cursor,
+    viewport_offset: Point,
 }
 
 impl Editor {
@@ -22,10 +33,31 @@ impl Editor {
     pub const COLUMN_START: u8 = Self::LINE_NUMBER_ALIGNMENT + 2; // line number alignment + "  " (2)
 
     pub fn new() -> Editor {
-        Editor {
+        let mut editor = Editor {
             lines: vec![String::new()],
-            cursor: Cursor { row: 0, col: 0 },
-        }
+            cursor: Point::new(),
+            viewport_offset: Point::new(),
+        };
+
+        let mut buffer = String::new();
+
+        std::fs::File::open("./test.txt")
+            .unwrap()
+            .read_to_string(&mut buffer);
+
+        editor.lines = buffer.split("\n").map(String::from).collect();
+
+        return editor;
+    }
+
+    pub fn viewport_offset(&self) -> &Point {
+        &self.viewport_offset
+    }
+
+    pub fn viewport_size(&self) -> Point {
+        let (terminal_width, terminal_height) = terminal::size().unwrap();
+
+        return Point::from(terminal_height as usize, terminal_width as usize);
     }
 
     pub fn lines(&self) -> &Vec<String> {
@@ -115,10 +147,35 @@ impl Editor {
         self.cursor.col = self.cursor.col.clamp(0, self.max_cols());
     }
 
-    pub fn cursor_position_to_screen(&self) -> Cursor {
-        Cursor {
+    pub fn cursor_position_to_screen(&self) -> Point {
+        Point {
             col: self.cursor.col + Self::COLUMN_START as usize,
-            ..self.cursor
+            row: self.cursor.row - self.viewport_offset.row,
+        }
+    }
+
+    pub fn move_viewport_to_up(&mut self) {
+        if self.viewport_offset.row >= 1 {
+            self.viewport_offset.row -= 1;
+        }
+    }
+
+    pub fn move_viewport_to_down(&mut self) {
+        if self.viewport_offset.row < self.max_rows() {
+            self.viewport_offset.row += 1;
+        }
+    }
+
+    fn update_viewport_offset(&mut self) {
+        let screen_cursor = self.cursor_position_to_screen();
+        let viewport_size = self.viewport_size();
+
+        if screen_cursor.row >= viewport_size.row - 2 {
+            self.move_viewport_to_down();
+        }
+
+        if screen_cursor.row <= 1 {
+            self.move_viewport_to_up();
         }
     }
 
@@ -128,6 +185,7 @@ impl Editor {
             _ => self.process_special_character(character),
         }
 
+        self.update_viewport_offset();
         self.clamp_cursor_position();
     }
 
@@ -159,25 +217,25 @@ impl Editor {
     }
 
     pub fn enter(&mut self) {
-        let cursor = Cursor {
+        let point = Point {
             row: self.cursor.row as usize + 1,
             ..self.cursor
         };
 
-        self.split_line_down(&cursor);
+        self.split_line_down(&point);
 
         self.move_cursor_down();
         self.move_cursor_to_start_of_line();
     }
 
-    fn split_line_down(&mut self, cursor: &Cursor) {
-        if cursor.row > self.max_rows() {
+    fn split_line_down(&mut self, point: &Point) {
+        if point.row > self.max_rows() {
             self.lines.push(String::new())
         }
 
-        let splitted_line = self.get_line_at_cursor_mut().unwrap().split_off(cursor.col);
+        let splitted_line = self.get_line_at_cursor_mut().unwrap().split_off(point.col);
 
-        self.lines.insert(cursor.row, splitted_line);
+        self.lines.insert(point.row, splitted_line);
     }
 
     pub fn backspace(&mut self) {
@@ -230,13 +288,24 @@ impl Editor {
             Clear(ClearType::Purge),
         )?;
 
-        for (i, _) in self.lines.iter().enumerate() {
+        let viewport_offset = self.viewport_offset();
+        let viewport_size = self.viewport_size();
+
+        let mut terminal_line: u16 = 0;
+
+        for line_index in viewport_offset.row..viewport_offset.row + viewport_size.row {
+            if terminal_line as usize + viewport_offset.row >= self.max_rows() {
+                break;
+            }
+
             queue!(
                 io::stdout(),
-                MoveTo(0, i as u16),
-                Print(self.line_to_string(i))
+                MoveTo(0, terminal_line),
+                Print(self.line_to_string(line_index))
             )
             .unwrap();
+
+            terminal_line += 1;
         }
 
         return Result::Ok(());
