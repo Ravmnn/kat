@@ -352,7 +352,8 @@ impl Editor {
             }
 
             let line_start = viewport_offset.col as usize;
-            let line_end = line_start + viewport_size.col as usize - Self::COLUMN_START as usize;
+            let line_end =
+                line_start + viewport_size.col as usize - Self::COLUMN_START as usize - 1;
 
             queue!(
                 io::stdout(),
