@@ -6,11 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crossterm::{
-    cursor::MoveTo,
-    event::{poll, read, Event::Key},
-    queue,
-};
+use crossterm::event::{poll, read, Event::Key};
 
 use app::{deinit, init};
 use editor::Editor;
@@ -21,24 +17,15 @@ fn main() -> Result<(), Error> {
     let mut editor = Editor::new();
 
     while !editor.should_exit() {
-        if poll(Duration::from_millis(50))? {
-            match read()? {
-                Key(key) => editor.process_key_event(key),
-                _ => {}
+        if poll(Duration::from_millis(10))? {
+            if let Key(key) = read()? {
+                editor.process_key_event(key)
             };
         }
 
+        editor.update();
         editor.print().expect("Couldn't print editor");
-
-        let viewport_cursor_position = editor.get_viewport_cursor_position();
-
-        queue!(
-            io::stdout(),
-            MoveTo(
-                viewport_cursor_position.col as u16,
-                viewport_cursor_position.row as u16
-            )
-        )?;
+        editor.align_terminal_cursor_position()?;
 
         io::stdout().flush()?;
     }

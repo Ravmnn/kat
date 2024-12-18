@@ -70,7 +70,7 @@ impl Editor {
 
         editor.lines = buffer.split("\n").map(String::from).collect();
 
-        return editor;
+        editor
     }
 
     pub fn cursor(&self) -> &Point {
@@ -119,7 +119,7 @@ impl Editor {
         }
 
         self.cursor.row -= 1;
-        return true;
+        true
     }
 
     pub fn move_cursor_down(&mut self) -> bool {
@@ -128,7 +128,7 @@ impl Editor {
         }
 
         self.cursor.row += 1;
-        return true;
+        true
     }
 
     pub fn move_cursor_forward(&mut self) -> bool {
@@ -142,7 +142,7 @@ impl Editor {
             return true;
         }
 
-        return false;
+        false
     }
 
     pub fn move_cursor_backward(&mut self) -> bool {
@@ -156,7 +156,7 @@ impl Editor {
             return true;
         }
 
-        return false;
+        false
     }
 
     pub fn move_cursor_to_start_of_line(&mut self) {
@@ -179,27 +179,13 @@ impl Editor {
         )
     }
 
-    pub fn is_cursor_x_inside_viewport(&self) -> bool {
-        let x = self.get_viewport_cursor_position().col;
-        return x >= self.viewport.pos.col && x <= self.viewport.width as isize;
-    }
-
-    pub fn is_cursor_y_inside_viewport(&self) -> bool {
-        let y = self.get_viewport_cursor_position().row;
-        return y >= self.viewport.pos.row && y <= self.viewport.height as isize;
-    }
-
-    pub fn is_cursor_inside_viewport(&self) -> bool {
-        self.is_cursor_x_inside_viewport() && self.is_cursor_y_inside_viewport()
-    }
-
     pub fn move_viewport_to_up(&mut self) -> bool {
         if self.viewport.pos.row < 1 {
             return false;
         }
 
         self.viewport.pos.row -= 1;
-        return true;
+        true
     }
 
     pub fn move_viewport_to_down(&mut self) -> bool {
@@ -208,7 +194,7 @@ impl Editor {
         }
 
         self.viewport.pos.row += 1;
-        return true;
+        true
     }
 
     pub fn move_viewport_to_left(&mut self) -> bool {
@@ -217,7 +203,7 @@ impl Editor {
         }
 
         self.viewport.pos.col -= 1;
-        return true;
+        true
     }
 
     pub fn move_viewport_to_right(&mut self) -> bool {
@@ -228,7 +214,7 @@ impl Editor {
         }
 
         self.viewport.pos.col += 1;
-        return true;
+        true
     }
 
     fn update_viewport_position(&mut self) {
@@ -269,8 +255,8 @@ impl Editor {
             KeyCode::Right => _ = self.move_cursor_forward(),
             KeyCode::Down => _ = self.move_cursor_down(),
 
-            KeyCode::Enter => _ = self.enter(),
-            KeyCode::Backspace => _ = self.backspace(),
+            KeyCode::Enter => self.enter(),
+            KeyCode::Backspace => self.backspace(),
 
             KeyCode::Char(ch) => self.insert_byte(ch as u8),
 
@@ -278,10 +264,27 @@ impl Editor {
 
             _ => {}
         };
+    }
 
-        self.clamp_cursor_position(); // TODO: merge these into an update method
+    pub fn update(&mut self) {
+        self.clamp_cursor_position();
+
         self.update_viewport_size();
         self.update_viewport_position();
+    }
+
+    pub fn align_terminal_cursor_position(&self) -> io::Result<()> {
+        let viewport_cursor_position = self.get_viewport_cursor_position();
+
+        queue!(
+            io::stdout(),
+            MoveTo(
+                viewport_cursor_position.col as u16,
+                viewport_cursor_position.row as u16
+            )
+        )?;
+
+        Ok(())
     }
 
     pub fn enter(&mut self) {
@@ -350,14 +353,13 @@ impl Editor {
     }
 
     pub fn print(&self) -> io::Result<()> {
-        let mut terminal_line: u16 = 0;
         let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
 
         let mut lines = String::new();
 
         Self::clear_all_screen()?;
 
-        for line_index in range {
+        for (terminal_line, line_index) in (0..).zip(range) {
             if terminal_line as usize + self.viewport.pos.row as usize >= self.max_rows() {
                 break;
             }
@@ -375,13 +377,11 @@ impl Editor {
                 self.format_line(line_index as usize, line_start, line_end)
             )
             .as_str();
-
-            terminal_line += 1;
         }
 
         queue!(stdout(), Print(lines))?;
 
-        return Result::Ok(());
+        Ok(())
     }
 
     fn clear_all_screen() -> io::Result<()> {
