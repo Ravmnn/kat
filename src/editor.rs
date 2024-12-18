@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::io::stdout;
 use std::io::{self, Read};
 
@@ -355,6 +356,9 @@ impl Editor {
             let line_end =
                 line_start + viewport_size.col as usize - Self::COLUMN_START as usize - 1;
 
+            // TODO: the above calculation can be null if the terminal window is too small.
+            // add a minimum size to the window to fix or think in another solution.
+
             queue!(
                 io::stdout(),
                 MoveTo(0, terminal_line),
@@ -370,19 +374,18 @@ impl Editor {
 
     fn line_to_string(&self, index: usize, start: usize, mut end: usize) -> String {
         let line = &self.lines[index];
+        let is_valid = start < line.len() && !line.is_empty();
 
-        if end >= line.len() {
-            end = line.len() - 1;
+        if is_valid {
+            end = end.clamp(0, line.len() - 1);
         }
+
+        let final_line = if is_valid { &line[start..=end] } else { "" };
 
         format!(
             "{:>line_width$}  {}",
             index + 1,
-            if start > line.len() {
-                ""
-            } else {
-                &line[start..=end]
-            },
+            final_line,
             line_width = Self::LINE_NUMBER_ALIGNMENT as usize,
         )
     }
