@@ -45,8 +45,10 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub const LINE_NUMBER_ALIGNMENT: u8 = 5; // line number (max of 5 characters)
-    pub const CURSOR_COLUMN_START_OFFSET: u8 = Self::LINE_NUMBER_ALIGNMENT + 2; // line number alignment + "  " (2)
+    const LINE_NUMBER_ALIGNMENT: u8 = 7; // line number (max of 7 characters)
+    const CURSOR_COLUMN_START_OFFSET: u8 = Self::LINE_NUMBER_ALIGNMENT + 3; // line number alignment + "   " (3)
+
+    const VIEWPORT_BOUND_MARGIN: u8 = 2;
 
     pub fn new() -> Editor {
         let mut editor = Editor {
@@ -224,16 +226,18 @@ impl Editor {
         let viewport_cursor_position = self.get_viewport_cursor_position();
 
         let mut should_recurse = false;
+        let margin = Self::VIEWPORT_BOUND_MARGIN as isize;
+        let column_offset = Self::CURSOR_COLUMN_START_OFFSET as isize;
 
-        if viewport_cursor_position.row >= self.viewport.height as isize - 2 {
+        if viewport_cursor_position.row >= self.viewport.height as isize - margin {
             should_recurse = self.move_viewport_to_down();
-        } else if viewport_cursor_position.row <= 1 {
+        } else if viewport_cursor_position.row < margin {
             should_recurse = self.move_viewport_to_up();
         }
 
-        if viewport_cursor_position.col >= self.viewport.width as isize - 2 {
+        if viewport_cursor_position.col > self.viewport.width as isize - margin {
             should_recurse = self.move_viewport_to_right();
-        } else if viewport_cursor_position.col <= 1 + Self::CURSOR_COLUMN_START_OFFSET as isize {
+        } else if viewport_cursor_position.col < margin + column_offset {
             should_recurse = self.move_viewport_to_left();
         }
 
@@ -288,10 +292,7 @@ impl Editor {
     }
 
     pub fn enter(&mut self) {
-        let point = Point {
-            row: self.cursor.row,
-            ..self.cursor
-        };
+        let point = Point { ..self.cursor };
 
         self.split_line_down(&point);
 
@@ -326,6 +327,7 @@ impl Editor {
         }
 
         self.remove_character_at_cursor();
+        self.move_cursor_backward();
     }
 
     fn remove_character_at_cursor(&mut self) {
@@ -334,8 +336,6 @@ impl Editor {
         self.get_line_at_cursor_mut()
             .unwrap()
             .remove(cursor_col - 1);
-
-        self.move_cursor_backward();
     }
 
     fn merge_below_line(&mut self, index: usize) {
@@ -357,16 +357,10 @@ impl Editor {
     }
 
     pub fn print(&self) -> io::Result<()> {
-        queue!(
-            stdout(),
-            MoveTo(0, 0),
-            Clear(ClearType::All),
-            Clear(ClearType::Purge),
-        )?;
-
         let mut terminal_line: u16 = 0;
-
         let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
+
+        Self::clear_all_screen()?;
 
         for line_index in range {
             if terminal_line as usize + self.viewport.pos.row as usize >= self.max_rows() {
@@ -374,24 +368,41 @@ impl Editor {
             }
 
             let line_start = self.viewport.pos.col as usize;
-            let line_end = line_start + self.viewport.width as usize
-                - Self::CURSOR_COLUMN_START_OFFSET as usize
-                - 1;
+            let line_end =
+                line_start + self.viewport.width - Self::CURSOR_COLUMN_START_OFFSET as usize - 1;
 
             // TODO: the above calculation can overflow (unsigned int) if the terminal window is too small.
             // add a minimum size to the window to fix or think in another solution.
 
-            queue!(
-                io::stdout(),
-                MoveTo(0, terminal_line),
-                Print(self.line_to_string(line_index as usize, line_start, line_end))
-            )
-            .unwrap();
+            self.print_line(terminal_line, line_index, line_start, line_end)?;
 
             terminal_line += 1;
         }
 
         return Result::Ok(());
+    }
+
+    fn clear_all_screen() -> io::Result<()> {
+        queue!(
+            stdout(),
+            MoveTo(0, 0),
+            Clear(ClearType::All),
+            Clear(ClearType::Purge),
+        )
+    }
+
+    fn print_line(
+        &self,
+        terminal_line: u16,
+        line_index: isize,
+        line_start: usize,
+        line_end: usize,
+    ) -> io::Result<()> {
+        queue!(
+            io::stdout(),
+            MoveTo(0, terminal_line),
+            Print(self.line_to_string(line_index as usize, line_start, line_end))
+        )
     }
 
     fn line_to_string(&self, index: usize, start: usize, mut end: usize) -> String {
@@ -405,7 +416,7 @@ impl Editor {
         let final_line = if is_valid { &line[start..=end] } else { "" };
 
         format!(
-            "{:>line_width$}  {}",
+            "{:>line_width$}   {}",
             index + 1,
             final_line,
             line_width = Self::LINE_NUMBER_ALIGNMENT as usize,
