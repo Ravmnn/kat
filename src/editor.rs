@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::io::stdout;
 use std::io::{self, Read};
 
@@ -23,26 +22,42 @@ impl Point {
     }
 }
 
+pub struct Rectangle {
+    pub pos: Point,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Rectangle {
+    pub fn new() -> Self {
+        Self::from(Point::new(), 0, 0)
+    }
+
+    pub fn from(pos: Point, width: usize, height: usize) -> Self {
+        Rectangle { pos, width, height }
+    }
+}
+
 pub struct Editor {
     cursor: Point,
     lines: Vec<String>,
-    viewport_offset: Point,
+    viewport: Rectangle,
 }
 
 impl Editor {
     pub const LINE_NUMBER_ALIGNMENT: u8 = 5; // line number (max of 5 characters)
-    pub const COLUMN_START: u8 = Self::LINE_NUMBER_ALIGNMENT + 2; // line number alignment + "  " (2)
+    pub const CURSOR_COLUMN_START_OFFSET: u8 = Self::LINE_NUMBER_ALIGNMENT + 2; // line number alignment + "  " (2)
 
     pub fn new() -> Editor {
         let mut editor = Editor {
-            lines: vec![String::new()],
             cursor: Point::new(),
-            viewport_offset: Point::new(),
+            lines: vec![String::new()],
+            viewport: Rectangle::new(),
         };
 
         let mut buffer = String::new();
 
-        std::fs::File::open("./test.txt")
+        let _ = std::fs::File::open("./test.txt")
             .unwrap()
             .read_to_string(&mut buffer);
 
@@ -51,18 +66,16 @@ impl Editor {
         return editor;
     }
 
-    pub fn viewport_offset(&self) -> &Point {
-        &self.viewport_offset
-    }
-
-    pub fn viewport_size(&self) -> Point {
-        let (terminal_width, terminal_height) = terminal::size().unwrap();
-
-        return Point::from(terminal_height as isize, terminal_width as isize);
+    pub fn cursor(&self) -> &Point {
+        &self.cursor
     }
 
     pub fn lines(&self) -> &Vec<String> {
         &self.lines
+    }
+
+    pub fn viewport(&self) -> &Rectangle {
+        &self.viewport
     }
 
     pub fn get_line_at(&self, index: usize) -> Option<&String> {
@@ -148,21 +161,21 @@ impl Editor {
         self.cursor.col = self.cursor.col.clamp(0, self.max_cols() as isize);
     }
 
-    pub fn cursor_position_to_screen(&self) -> (isize, isize) {
-        (
-            self.cursor.row - self.viewport_offset.row,
-            self.cursor.col - self.viewport_offset.col + Self::COLUMN_START as isize,
+    pub fn get_viewport_cursor_position(&self) -> Point {
+        Point::from(
+            self.cursor.row - self.viewport.pos.row,
+            self.cursor.col - self.viewport.pos.col + Self::CURSOR_COLUMN_START_OFFSET as isize,
         )
     }
 
     pub fn is_cursor_x_inside_viewport(&self) -> bool {
-        let x = self.cursor_position_to_screen().1;
-        return x >= self.viewport_offset.col && x <= self.viewport_size().col;
+        let x = self.get_viewport_cursor_position().col;
+        return x >= self.viewport.pos.col && x <= self.viewport.width as isize;
     }
 
     pub fn is_cursor_y_inside_viewport(&self) -> bool {
-        let y = self.cursor_position_to_screen().0;
-        return y >= self.viewport_offset.row && y <= self.viewport_size().row;
+        let y = self.get_viewport_cursor_position().row;
+        return y >= self.viewport.pos.row && y <= self.viewport.height as isize;
     }
 
     pub fn is_cursor_inside_viewport(&self) -> bool {
@@ -170,74 +183,81 @@ impl Editor {
     }
 
     pub fn move_viewport_to_up(&mut self) -> bool {
-        if self.viewport_offset.row < 1 {
+        if self.viewport.pos.row < 1 {
             return false;
         }
 
-        self.viewport_offset.row -= 1;
+        self.viewport.pos.row -= 1;
         return true;
     }
 
     pub fn move_viewport_to_down(&mut self) -> bool {
-        if self.viewport_offset.row >= self.max_rows() as isize {
+        if self.viewport.pos.row >= self.max_rows() as isize {
             return false;
         }
 
-        self.viewport_offset.row += 1;
+        self.viewport.pos.row += 1;
         return true;
     }
 
     pub fn move_viewport_to_left(&mut self) -> bool {
-        if self.viewport_offset.col < 1 {
+        if self.viewport.pos.col < 1 {
             return false;
         }
 
-        self.viewport_offset.col -= 1;
+        self.viewport.pos.col -= 1;
         return true;
     }
 
     pub fn move_viewport_to_right(&mut self) -> bool {
-        if self.viewport_offset.col + self.viewport_size().col
-            >= self.max_cols() as isize + Self::COLUMN_START as isize + 1
+        if self.viewport.pos.col + self.viewport.width as isize
+            >= self.max_cols() as isize + Self::CURSOR_COLUMN_START_OFFSET as isize + 1
         {
             return false;
         }
 
-        self.viewport_offset.col += 1;
+        self.viewport.pos.col += 1;
         return true;
     }
 
-    fn update_viewport_offset(&mut self) {
-        let (row, col) = self.cursor_position_to_screen();
-        let viewport_size = self.viewport_size();
+    fn update_viewport_position(&mut self) {
+        let viewport_cursor_position = self.get_viewport_cursor_position();
 
         let mut should_recurse = false;
 
-        if row >= viewport_size.row - 2 {
+        if viewport_cursor_position.row >= self.viewport.height as isize - 2 {
             should_recurse = self.move_viewport_to_down();
-        } else if row <= 1 {
+        } else if viewport_cursor_position.row <= 1 {
             should_recurse = self.move_viewport_to_up();
         }
 
-        if col >= viewport_size.col - 2 {
+        if viewport_cursor_position.col >= self.viewport.width as isize - 2 {
             should_recurse = self.move_viewport_to_right();
-        } else if col <= 1 + Self::COLUMN_START as isize {
+        } else if viewport_cursor_position.col <= 1 + Self::CURSOR_COLUMN_START_OFFSET as isize {
             should_recurse = self.move_viewport_to_left();
         }
 
         if should_recurse {
-            self.update_viewport_offset();
+            self.update_viewport_position();
         }
+    }
+
+    fn update_viewport_size(&mut self) {
+        let (terminal_width, terminal_height) = terminal::size().unwrap();
+
+        self.viewport.width = terminal_width as usize;
+        self.viewport.height = terminal_height as usize;
     }
 
     pub fn process_character(&mut self, character: Character) {
         match character {
             Character::Normal(ch) => self.insert_byte(ch),
             _ => self.process_special_character(character),
-        }
+        };
 
         self.clamp_cursor_position();
-        self.update_viewport_offset();
+        self.update_viewport_size();
+        self.update_viewport_position();
     }
 
     fn process_special_character(&mut self, character: Character) {
@@ -269,7 +289,7 @@ impl Editor {
 
     pub fn enter(&mut self) {
         let point = Point {
-            row: self.cursor.row + 1,
+            row: self.cursor.row,
             ..self.cursor
         };
 
@@ -280,7 +300,9 @@ impl Editor {
     }
 
     fn split_line_down(&mut self, point: &Point) {
-        if point.row > self.max_rows() as isize {
+        let newline = point.row as usize + 1;
+
+        if newline > self.max_rows() {
             self.lines.push(String::new())
         }
 
@@ -289,7 +311,7 @@ impl Editor {
             .unwrap()
             .split_off(point.col as usize);
 
-        self.lines.insert(point.row as usize, splitted_line);
+        self.lines.insert(newline, splitted_line);
     }
 
     pub fn backspace(&mut self) {
@@ -342,21 +364,21 @@ impl Editor {
             Clear(ClearType::Purge),
         )?;
 
-        let viewport_offset = self.viewport_offset();
-        let viewport_size = self.viewport_size();
-
         let mut terminal_line: u16 = 0;
 
-        for line_index in viewport_offset.row..viewport_offset.row + viewport_size.row {
-            if terminal_line as usize + viewport_offset.row as usize >= self.max_rows() {
+        let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
+
+        for line_index in range {
+            if terminal_line as usize + self.viewport.pos.row as usize >= self.max_rows() {
                 break;
             }
 
-            let line_start = viewport_offset.col as usize;
-            let line_end =
-                line_start + viewport_size.col as usize - Self::COLUMN_START as usize - 1;
+            let line_start = self.viewport.pos.col as usize;
+            let line_end = line_start + self.viewport.width as usize
+                - Self::CURSOR_COLUMN_START_OFFSET as usize
+                - 1;
 
-            // TODO: the above calculation can be null if the terminal window is too small.
+            // TODO: the above calculation can overflow (unsigned int) if the terminal window is too small.
             // add a minimum size to the window to fix or think in another solution.
 
             queue!(

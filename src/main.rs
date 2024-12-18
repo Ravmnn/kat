@@ -24,11 +24,16 @@ fn main() {
 
         editor.print().expect("Couldn't print editor");
 
-        let (row, col) = editor.cursor_position_to_screen();
+        let viewport_cursor_position = editor.get_viewport_cursor_position();
 
-        // print!("{:?}", screen_cursor);
-
-        execute!(io::stdout(), MoveTo(col as u16, row as u16)).unwrap();
+        execute!(
+            io::stdout(),
+            MoveTo(
+                viewport_cursor_position.col as u16,
+                viewport_cursor_position.row as u16
+            )
+        )
+        .unwrap();
 
         io::stdout().flush().unwrap();
     }
