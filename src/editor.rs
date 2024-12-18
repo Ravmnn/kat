@@ -8,8 +8,7 @@ use crossterm::{
     terminal::{self, Clear, ClearType},
 };
 
-// TODO: derive Debug, Clone and Copy
-
+#[derive(Debug, Clone, Copy)]
 pub struct Point {
     pub row: isize,
     pub col: isize,
@@ -25,6 +24,7 @@ impl Point {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Rectangle {
     pub pos: Point,
     pub width: usize,
@@ -288,7 +288,7 @@ impl Editor {
     }
 
     pub fn enter(&mut self) {
-        let point = Point { ..self.cursor };
+        let point = self.cursor;
 
         self.split_line_down(&point);
 
@@ -359,8 +359,8 @@ impl Editor {
 
         Self::clear_all_screen()?;
 
-        for (terminal_line, line_index) in (0..).zip(range) {
-            if terminal_line as usize + self.viewport.pos.row as usize >= self.max_rows() {
+        for (terminal_row, line_index) in (0..).zip(range) {
+            if terminal_row + self.viewport.pos.row as usize >= self.max_rows() {
                 break;
             }
 
@@ -370,13 +370,10 @@ impl Editor {
 
             // TODO: the above calculation can overflow (unsigned int) if the terminal window is too small.
             // add a minimum size to the window to fix or think in another solution.
+            //
+            let line = self.format_line(line_index as usize, line_start, line_end);
 
-            lines += format!(
-                "{}{}",
-                MoveTo(0, terminal_line),
-                self.format_line(line_index as usize, line_start, line_end)
-            )
-            .as_str();
+            lines += format!("{}{}", MoveTo(0, terminal_row as u16), line).as_str();
         }
 
         queue!(stdout(), Print(lines))?;
@@ -404,7 +401,7 @@ impl Editor {
         let final_line = if is_valid { &line[start..=end] } else { "" };
 
         format!(
-            "{:>line_width$}   {}",
+            "{:>line_width$}   {}", // TODO: automatize: calculate amount of spaces based on a constant
             index + 1,
             final_line,
             line_width = Self::LINE_NUMBER_ALIGNMENT as usize,
