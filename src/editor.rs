@@ -49,8 +49,11 @@ pub struct Editor {
 }
 
 impl Editor {
-    const LINE_NUMBER_ALIGNMENT: u8 = 7; // line number (max of 7 characters)
-    const CURSOR_COLUMN_START_OFFSET: u8 = Self::LINE_NUMBER_ALIGNMENT + 3; // line number alignment + "   " (3)
+    const LINE_NUMBER_AREA_LENGTH_IN_CELLS: u8 = 7;
+    const LINE_NUMBER_EXTRA_SPACES: u8 = 3;
+
+    const CURSOR_COLUMN_START_OFFSET: u8 =
+        Self::LINE_NUMBER_AREA_LENGTH_IN_CELLS + Self::LINE_NUMBER_EXTRA_SPACES;
 
     const VIEWPORT_BOUND_MARGIN: u8 = 2;
 
@@ -401,10 +404,11 @@ impl Editor {
         let final_line = if is_valid { &line[start..=end] } else { "" };
 
         format!(
-            "{:>line_width$}   {}", // TODO: automatize: calculate amount of spaces based on a constant
+            "{:>line_width$}{}{}",
             index + 1,
+            " ".repeat(Self::LINE_NUMBER_EXTRA_SPACES as usize),
             final_line,
-            line_width = Self::LINE_NUMBER_ALIGNMENT as usize,
+            line_width = Self::LINE_NUMBER_AREA_LENGTH_IN_CELLS as usize,
         )
     }
 }
