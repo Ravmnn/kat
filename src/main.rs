@@ -1,25 +1,32 @@
+mod app;
 mod editor;
 mod input;
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Error, Write},
+    time::Duration,
+};
 
-use crossterm::cursor::MoveTo;
-use crossterm::terminal::{self, DisableLineWrap};
-use crossterm::{execute, queue};
+use app::{deinit, init};
+use crossterm::{
+    cursor::MoveTo,
+    event::{poll, read, Event::Key, KeyCode},
+    queue,
+};
 
 use editor::Editor;
-use input::read_character_from_stdin;
 
-fn main() {
-    terminal::enable_raw_mode().unwrap();
-    execute!(io::stdout(), DisableLineWrap).unwrap();
+fn main() -> Result<(), Error> {
+    init().expect("Couldn't init kat");
 
     let mut editor = Editor::new();
 
-    loop {
-        match read_character_from_stdin() {
-            Some(character) => editor.process_character(character),
-            _ => break,
+    while !editor.should_exit() {
+        if poll(Duration::from_millis(50))? {
+            match read()? {
+                Key(key) => editor.process_key_event(key),
+                _ => {}
+            };
         }
 
         editor.print().expect("Couldn't print editor");
@@ -32,11 +39,12 @@ fn main() {
                 viewport_cursor_position.col as u16,
                 viewport_cursor_position.row as u16
             )
-        )
-        .unwrap();
+        )?;
 
-        io::stdout().flush().unwrap();
+        io::stdout().flush()?;
     }
 
-    terminal::disable_raw_mode().unwrap();
+    deinit().expect("Couldn't close kat correctly");
+
+    Ok(())
 }

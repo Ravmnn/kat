@@ -1,12 +1,17 @@
-use std::io::stdout;
-use std::io::{self, Read};
+use std::io::{self, stdout, Read};
 
-use crossterm::terminal::{self, Clear, ClearType};
-use crossterm::{cursor::MoveTo, queue, style::Print};
+use crossterm::{
+    cursor::MoveTo,
+    event::{KeyCode, KeyEvent},
+    queue,
+    style::Print,
+    terminal::{self, Clear, ClearType},
+};
 
 use crate::input::Character;
 
-#[derive(Debug)]
+// TODO: derive Debug, Clone and Copy
+
 pub struct Point {
     pub row: isize,
     pub col: isize,
@@ -42,6 +47,7 @@ pub struct Editor {
     cursor: Point,
     lines: Vec<String>,
     viewport: Rectangle,
+    should_exit: bool,
 }
 
 impl Editor {
@@ -55,6 +61,7 @@ impl Editor {
             cursor: Point::new(),
             lines: vec![String::new()],
             viewport: Rectangle::new(),
+            should_exit: false,
         };
 
         let mut buffer = String::new();
@@ -78,6 +85,10 @@ impl Editor {
 
     pub fn viewport(&self) -> &Rectangle {
         &self.viewport
+    }
+
+    pub fn should_exit(&self) -> bool {
+        self.should_exit
     }
 
     pub fn get_line_at(&self, index: usize) -> Option<&String> {
@@ -253,42 +264,26 @@ impl Editor {
         self.viewport.height = terminal_height as usize;
     }
 
-    pub fn process_character(&mut self, character: Character) {
-        match character {
-            Character::Normal(ch) => self.insert_byte(ch),
-            _ => self.process_special_character(character),
-        };
+    pub fn process_key_event(&mut self, character: KeyEvent) {
+        match character.code {
+            KeyCode::Left => _ = self.move_cursor_backward(),
+            KeyCode::Up => _ = self.move_cursor_up(),
+            KeyCode::Right => _ = self.move_cursor_forward(),
+            KeyCode::Down => _ = self.move_cursor_down(),
 
-        self.clamp_cursor_position();
-        self.update_viewport_size();
-        self.update_viewport_position();
-    }
+            KeyCode::Enter => _ = self.enter(),
+            KeyCode::Backspace => _ = self.backspace(),
 
-    fn process_special_character(&mut self, character: Character) {
-        match character {
-            Character::ArrowLeft => {
-                self.move_cursor_backward();
-            }
-            Character::ArrowTop => {
-                self.move_cursor_up();
-            }
-            Character::ArrowRight => {
-                self.move_cursor_forward();
-            }
-            Character::ArrowBottom => {
-                self.move_cursor_down();
-            }
+            KeyCode::Char(ch) => self.insert_byte(ch as u8),
 
-            Character::Enter => {
-                self.enter();
-            }
-
-            Character::Backspace => {
-                self.backspace();
-            }
+            KeyCode::Esc => self.should_exit = true,
 
             _ => {}
         };
+
+        self.clamp_cursor_position(); // TODO: merge these into an update method
+        self.update_viewport_size();
+        self.update_viewport_position();
     }
 
     pub fn enter(&mut self) {
