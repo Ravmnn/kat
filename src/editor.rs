@@ -8,8 +8,6 @@ use crossterm::{
     terminal::{self, Clear, ClearType},
 };
 
-use crate::input::Character;
-
 // TODO: derive Debug, Clone and Copy
 
 pub struct Point {

@@ -1,19 +1,18 @@
 mod app;
 mod editor;
-mod input;
 
 use std::{
     io::{self, Error, Write},
     time::Duration,
 };
 
-use app::{deinit, init};
 use crossterm::{
     cursor::MoveTo,
-    event::{poll, read, Event::Key, KeyCode},
+    event::{poll, read, Event::Key},
     queue,
 };
 
+use app::{deinit, init};
 use editor::Editor;
 
 fn main() -> Result<(), Error> {
