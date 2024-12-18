@@ -4,8 +4,8 @@ mod input;
 use std::io::{self, Write};
 
 use crossterm::cursor::MoveTo;
-use crossterm::execute;
 use crossterm::terminal::{self, DisableLineWrap};
+use crossterm::{execute, queue};
 
 use editor::Editor;
 use input::read_character_from_stdin;
@@ -26,7 +26,7 @@ fn main() {
 
         let viewport_cursor_position = editor.get_viewport_cursor_position();
 
-        execute!(
+        queue!(
             io::stdout(),
             MoveTo(
                 viewport_cursor_position.col as u16,

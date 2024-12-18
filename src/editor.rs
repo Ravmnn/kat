@@ -360,6 +360,8 @@ impl Editor {
         let mut terminal_line: u16 = 0;
         let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
 
+        let mut lines = String::new();
+
         Self::clear_all_screen()?;
 
         for line_index in range {
@@ -374,10 +376,17 @@ impl Editor {
             // TODO: the above calculation can overflow (unsigned int) if the terminal window is too small.
             // add a minimum size to the window to fix or think in another solution.
 
-            self.print_line(terminal_line, line_index, line_start, line_end)?;
+            lines += format!(
+                "{}{}",
+                MoveTo(0, terminal_line),
+                self.format_line(line_index as usize, line_start, line_end)
+            )
+            .as_str();
 
             terminal_line += 1;
         }
+
+        queue!(stdout(), Print(lines))?;
 
         return Result::Ok(());
     }
@@ -391,21 +400,7 @@ impl Editor {
         )
     }
 
-    fn print_line(
-        &self,
-        terminal_line: u16,
-        line_index: isize,
-        line_start: usize,
-        line_end: usize,
-    ) -> io::Result<()> {
-        queue!(
-            io::stdout(),
-            MoveTo(0, terminal_line),
-            Print(self.line_to_string(line_index as usize, line_start, line_end))
-        )
-    }
-
-    fn line_to_string(&self, index: usize, start: usize, mut end: usize) -> String {
+    fn format_line(&self, index: usize, start: usize, mut end: usize) -> String {
         let line = &self.lines[index];
         let is_valid = start < line.len() && !line.is_empty();
 
