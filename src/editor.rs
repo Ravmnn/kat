@@ -1,5 +1,6 @@
 use std::io::{self, stdout, Read};
 
+use crossterm::event::KeyModifiers;
 use crossterm::{
     cursor::MoveTo,
     event::{KeyCode, KeyEvent},
@@ -42,10 +43,13 @@ impl Rectangle {
     }
 }
 
+// TODO: add CTRL modifier behavior
+
 pub struct Editor {
     cursor: Point,
     lines: Vec<String>,
     viewport: Rectangle,
+    key_modifiers: KeyModifiers,
     should_exit: bool,
 }
 
@@ -75,6 +79,7 @@ impl Editor {
             cursor: Point::new(),
             lines: vec![String::new()],
             viewport: Rectangle::new(),
+            key_modifiers: KeyModifiers::empty(),
             should_exit: false,
         };
 
@@ -105,6 +110,46 @@ impl Editor {
         self.should_exit
     }
 
+    pub fn is_ctrl_pressed(&self) -> bool {
+        self.key_modifiers.contains(KeyModifiers::CONTROL)
+    }
+
+    fn are_characters_at_cursor_word(&self, left_char: bool, right_char: bool) -> bool {
+        let (ch_left, ch_right) = self.get_characters_at_cursor();
+        let left_valid = if left_char {
+            Self::is_character_word(ch_left.unwrap_or('\0'))
+        } else {
+            true
+        };
+        let right_valid = if right_char {
+            Self::is_character_word(ch_right.unwrap_or('\0'))
+        } else {
+            true
+        };
+
+        left_valid && right_valid
+    }
+
+    fn are_both_characters_at_cursor_word(&self) -> bool {
+        self.are_characters_at_cursor_word(true, true)
+    }
+
+    fn is_left_character_at_cursor_word(&self) -> bool {
+        self.are_characters_at_cursor_word(true, false)
+    }
+
+    fn is_right_character_at_cursor_word(&self) -> bool {
+        self.are_characters_at_cursor_word(false, true)
+    }
+
+    fn should_repeat(&self, left: bool, right: bool) -> bool {
+        self.is_ctrl_pressed() && self.are_characters_at_cursor_word(left, right)
+    }
+
+    fn is_character_word(ch: char) -> bool {
+        ch.is_ascii_alphanumeric() || ch == '_'
+    }
+
     pub fn get_line_at(&self, index: usize) -> Option<&String> {
         self.lines.get(index)
     }
@@ -113,12 +158,31 @@ impl Editor {
         self.lines.get_mut(index)
     }
 
-    pub fn get_line_at_cursor(&self) -> Option<&String> {
-        self.get_line_at(self.cursor.row as usize)
+    pub fn get_line_at_cursor(&self) -> &String {
+        self.get_line_at(self.cursor.row as usize).unwrap()
     }
 
-    pub fn get_line_at_cursor_mut(&mut self) -> Option<&mut String> {
-        self.get_line_at_mut(self.cursor.row as usize)
+    pub fn get_line_at_cursor_mut(&mut self) -> &mut String {
+        self.get_line_at_mut(self.cursor.row as usize).unwrap()
+    }
+
+    pub fn get_character_at(&self, row: usize, col: usize) -> Option<char> {
+        self.get_line_at(row)?.chars().nth(col)
+    }
+
+    pub fn get_character_at_cursor_line(&self, col: usize) -> Option<char> {
+        self.get_line_at_cursor().chars().nth(col)
+    }
+
+    pub fn get_characters_at_cursor(&self) -> (Option<char>, Option<char>) {
+        (
+            if self.cursor.col <= 0 {
+                None
+            } else {
+                self.get_character_at_cursor_line(self.cursor.col as usize - 1)
+            },
+            self.get_character_at_cursor_line(self.cursor.col as usize),
+        )
     }
 
     pub fn max_rows(&self) -> usize {
@@ -147,13 +211,11 @@ impl Editor {
         true
     }
 
-    pub fn move_cursor_forward(&mut self) -> bool {
+    pub fn move_cursor_forward_once(&mut self) -> bool {
         if self.cursor.col < self.max_cols() as isize {
             self.cursor.col += 1;
             return true;
-        }
-
-        if self.move_cursor_down() {
+        } else if self.move_cursor_down() {
             self.cursor.col = 0;
             return true;
         }
@@ -161,14 +223,30 @@ impl Editor {
         false
     }
 
-    pub fn move_cursor_backward(&mut self) -> bool {
-        if self.cursor.col > 0 {
-            self.cursor.col -= 1;
+    pub fn move_cursor_forward(&mut self) -> bool {
+        if self.move_cursor_forward_once() && self.should_repeat(true, true) {
+            self.move_cursor_forward();
             return true;
         }
 
-        if self.move_cursor_up() {
-            self.cursor.col = self.max_cols() as isize; // reset to what?
+        false
+    }
+
+    pub fn move_cursor_backward_once(&mut self) -> bool {
+        if self.cursor.col > 0 {
+            self.cursor.col -= 1;
+            return true;
+        } else if self.move_cursor_up() {
+            self.cursor.col = self.max_cols() as isize;
+            return true;
+        }
+
+        false
+    }
+
+    pub fn move_cursor_backward(&mut self) -> bool {
+        if self.move_cursor_backward_once() && self.should_repeat(true, true) {
+            self.move_cursor_backward();
             return true;
         }
 
@@ -264,21 +342,32 @@ impl Editor {
         self.viewport.height = terminal_height as usize;
     }
 
-    pub fn process_key_event(&mut self, character: KeyEvent) -> io::Result<()> {
+    pub fn process_key_event(&mut self, key: KeyEvent) -> io::Result<()> {
         if Self::is_terminal_size_too_small()? {
             return Ok(());
         }
 
-        match character.code {
+        self.key_modifiers = key.modifiers;
+
+        match key.code {
             KeyCode::Left => _ = self.move_cursor_backward(),
             KeyCode::Up => _ = self.move_cursor_up(),
             KeyCode::Right => _ = self.move_cursor_forward(),
             KeyCode::Down => _ = self.move_cursor_down(),
 
             KeyCode::Enter => self.enter(),
-            KeyCode::Backspace => self.backspace(),
+            KeyCode::Backspace => _ = self.backspace_once(),
 
-            KeyCode::Char(ch) => self.insert_byte(ch as u8),
+            KeyCode::Char(ch) => {
+                // CTRL + Backspace is interpreted wrong:
+                // https://github.com/crossterm-rs/crossterm/issues/504
+
+                if ch == 'h' && self.is_ctrl_pressed() {
+                    self.backspace();
+                } else {
+                    self.insert_char(ch);
+                }
+            }
 
             KeyCode::Esc => self.should_exit = true,
 
@@ -305,7 +394,7 @@ impl Editor {
         let viewport_cursor_position = self.get_viewport_cursor_position();
 
         queue!(
-            io::stdout(),
+            stdout(),
             MoveTo(
                 viewport_cursor_position.col as u16,
                 viewport_cursor_position.row as u16
@@ -331,35 +420,40 @@ impl Editor {
             self.lines.push(String::new())
         }
 
-        let splitted_line = self
-            .get_line_at_cursor_mut()
-            .unwrap()
-            .split_off(point.col as usize);
+        let split_line = self.get_line_at_cursor_mut().split_off(point.col as usize);
 
-        self.lines.insert(newline, splitted_line);
+        self.lines.insert(newline, split_line);
     }
 
-    pub fn backspace(&mut self) {
+    pub fn backspace_once(&mut self) -> bool {
         if self.cursor.row == 0 && self.cursor.col == 0 {
-            return;
+            return false;
         }
 
         if self.cursor.col == 0 {
-            self.move_cursor_backward();
+            self.move_cursor_backward_once();
             self.merge_below_line(self.cursor.row as usize);
-            return;
+            return false;
         }
 
         self.remove_character_at_cursor();
-        self.move_cursor_backward();
+        self.move_cursor_backward_once();
+        true
+    }
+
+    pub fn backspace(&mut self) -> bool {
+        if self.backspace_once() && self.should_repeat(true, false) {
+            self.backspace();
+            return true;
+        }
+
+        false
     }
 
     fn remove_character_at_cursor(&mut self) {
         let cursor_col = self.cursor.col as usize;
 
-        self.get_line_at_cursor_mut()
-            .unwrap()
-            .remove(cursor_col - 1);
+        self.get_line_at_cursor_mut().remove(cursor_col - 1);
     }
 
     fn merge_below_line(&mut self, index: usize) {
@@ -370,14 +464,12 @@ impl Editor {
             .push_str(line_buffer.as_str());
     }
 
-    pub fn insert_byte(&mut self, byte: u8) {
+    pub fn insert_char(&mut self, char: char) {
         let col_index = self.cursor.col as usize;
 
-        self.get_line_at_cursor_mut()
-            .unwrap()
-            .insert(col_index, byte as char);
+        self.get_line_at_cursor_mut().insert(col_index, char);
 
-        self.move_cursor_forward();
+        self.move_cursor_forward_once();
     }
 
     pub fn print(&self) -> io::Result<()> {
@@ -427,7 +519,7 @@ impl Editor {
         let is_valid = start < line.len() && !line.is_empty();
 
         if is_valid {
-            end = end.clamp(0, line.len() - 1);
+            end = end.clamp(0, line.len());
         }
 
         let final_line = if is_valid { &line[start..end] } else { "" };

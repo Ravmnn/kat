@@ -1,12 +1,17 @@
 mod app;
 mod editor;
 
+use io::stdout;
 use std::{
     io::{self, Error, Write},
     time::Duration,
 };
 
-use crossterm::event::{poll, read, Event};
+use crossterm::{
+    event::{poll, read, Event},
+    style::Print,
+    QueueableCommand,
+};
 
 use app::{deinit, init};
 use editor::Editor;
@@ -27,7 +32,7 @@ fn main() -> Result<(), Error> {
         editor.print()?;
         editor.align_terminal_cursor_position()?;
 
-        io::stdout().flush()?;
+        stdout().flush()?;
     }
 
     deinit().expect("Couldn't close kat correctly");
