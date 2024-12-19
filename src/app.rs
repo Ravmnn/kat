@@ -1,20 +1,20 @@
-use std::io;
+use std::io::{self, stdout};
 
 use crossterm::{
-    execute,
     terminal::{self, DisableLineWrap, EnableLineWrap},
+    ExecutableCommand,
 };
 
 pub fn init() -> Result<(), io::Error> {
     terminal::enable_raw_mode()?;
-    execute!(io::stdout(), DisableLineWrap)?;
+    stdout().execute(DisableLineWrap)?;
 
     Ok(())
 }
 
 pub fn deinit() -> Result<(), io::Error> {
     terminal::disable_raw_mode()?;
-    execute!(io::stdout(), EnableLineWrap)?;
+    stdout().execute(EnableLineWrap)?;
 
     Ok(())
 }

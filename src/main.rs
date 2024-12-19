@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{poll, read, Event::Key};
+use crossterm::event::{poll, read, Event};
 
 use app::{deinit, init};
 use editor::Editor;
@@ -18,13 +18,13 @@ fn main() -> Result<(), Error> {
 
     while !editor.should_exit() {
         if poll(Duration::from_millis(10))? {
-            if let Key(key) = read()? {
-                editor.process_key_event(key)
+            if let Event::Key(key) = read()? {
+                editor.process_key_event(key)?
             };
         }
 
-        editor.update();
-        editor.print().expect("Couldn't print editor");
+        editor.update()?;
+        editor.print()?;
         editor.align_terminal_cursor_position()?;
 
         io::stdout().flush()?;

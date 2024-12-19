@@ -6,6 +6,7 @@ use crossterm::{
     queue,
     style::Print,
     terminal::{self, Clear, ClearType},
+    QueueableCommand,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -49,13 +50,25 @@ pub struct Editor {
 }
 
 impl Editor {
-    const LINE_NUMBER_AREA_LENGTH_IN_CELLS: u8 = 7;
-    const LINE_NUMBER_EXTRA_SPACES: u8 = 3;
+    const LINE_NUMBER_AREA_LENGTH_IN_CELLS: u16 = 7;
+    const LINE_NUMBER_EXTRA_SPACES: u16 = 3;
 
-    const CURSOR_COLUMN_START_OFFSET: u8 =
+    const CURSOR_COLUMN_START_OFFSET: u16 =
         Self::LINE_NUMBER_AREA_LENGTH_IN_CELLS + Self::LINE_NUMBER_EXTRA_SPACES;
 
-    const VIEWPORT_BOUND_MARGIN: u8 = 2;
+    const VIEWPORT_BOUND_MARGIN: u16 = 2;
+
+    const MINIMUM_TERMINAL_WIDTH: u16 = Self::CURSOR_COLUMN_START_OFFSET + 5;
+    const MINIMUM_TERMINAL_HEIGHT: u16 = Self::VIEWPORT_BOUND_MARGIN * 2 + 1;
+
+    const TERMINAL_TOO_SMALL_MESSAGE: &'static str = "Terminal too small!!";
+
+    pub fn is_terminal_size_too_small() -> io::Result<bool> {
+        let (current_terminal_width, current_terminal_height) = terminal::size()?;
+
+        Ok(current_terminal_width < Self::MINIMUM_TERMINAL_WIDTH
+            || current_terminal_height < Self::MINIMUM_TERMINAL_HEIGHT)
+    }
 
     pub fn new() -> Editor {
         let mut editor = Editor {
@@ -251,7 +264,11 @@ impl Editor {
         self.viewport.height = terminal_height as usize;
     }
 
-    pub fn process_key_event(&mut self, character: KeyEvent) {
+    pub fn process_key_event(&mut self, character: KeyEvent) -> io::Result<()> {
+        if Self::is_terminal_size_too_small()? {
+            return Ok(());
+        }
+
         match character.code {
             KeyCode::Left => _ = self.move_cursor_backward(),
             KeyCode::Up => _ = self.move_cursor_up(),
@@ -267,13 +284,21 @@ impl Editor {
 
             _ => {}
         };
+
+        Ok(())
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self) -> io::Result<()> {
+        if Self::is_terminal_size_too_small()? {
+            return Ok(());
+        }
+
         self.clamp_cursor_position();
 
         self.update_viewport_size();
         self.update_viewport_position();
+
+        Ok(())
     }
 
     pub fn align_terminal_cursor_position(&self) -> io::Result<()> {
@@ -356,11 +381,20 @@ impl Editor {
     }
 
     pub fn print(&self) -> io::Result<()> {
-        let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
-
-        let mut lines = String::new();
-
         Self::clear_all_screen()?;
+
+        if Self::is_terminal_size_too_small()? {
+            stdout().queue(Print(Self::TERMINAL_TOO_SMALL_MESSAGE))?;
+        } else {
+            stdout().queue(Print(self.get_formatted_lines()))?;
+        }
+
+        Ok(())
+    }
+
+    fn get_formatted_lines(&self) -> String {
+        let range = self.viewport.pos.row..self.viewport.pos.row + self.viewport.height as isize;
+        let mut lines = String::new();
 
         for (terminal_row, line_index) in (0..).zip(range) {
             if terminal_row + self.viewport.pos.row as usize >= self.max_rows() {
@@ -369,19 +403,14 @@ impl Editor {
 
             let line_start = self.viewport.pos.col as usize;
             let line_end =
-                line_start + self.viewport.width - Self::CURSOR_COLUMN_START_OFFSET as usize - 1;
+                line_start + self.viewport.width - Self::CURSOR_COLUMN_START_OFFSET as usize;
 
-            // TODO: the above calculation can overflow (unsigned int) if the terminal window is too small.
-            // add a minimum size to the window to fix or think in another solution.
-            //
             let line = self.format_line(line_index as usize, line_start, line_end);
 
             lines += format!("{}{}", MoveTo(0, terminal_row as u16), line).as_str();
         }
 
-        queue!(stdout(), Print(lines))?;
-
-        Ok(())
+        lines
     }
 
     fn clear_all_screen() -> io::Result<()> {
@@ -401,7 +430,7 @@ impl Editor {
             end = end.clamp(0, line.len() - 1);
         }
 
-        let final_line = if is_valid { &line[start..=end] } else { "" };
+        let final_line = if is_valid { &line[start..end] } else { "" };
 
         format!(
             "{:>line_width$}{}{}",
